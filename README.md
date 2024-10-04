@@ -2,8 +2,8 @@
 
 ### DEFINIR O LAYOUT DO TECLADO E FONTE DO CONSOLE
 
-**$bash:** `loadkeys br-abnt2`  
-**$bash:** `setfont ter-116b`
+**$bash:** `loadkeys us-acentos`  
+**$bash:** `setfont ter-v128n` ou `setfont ter-v116n`
 
 ### DEFINIR O IDIOMA DO AMBIENTE LIVE
 
@@ -26,14 +26,9 @@ _• Dentro do arquivo locale.gen descomente essa linha e gere-os com (locale-ge
 
 **$bash:** `ping -c 4 archlinux.org`
 
-### ATUALIZAR O RELÓGIO DO SISTEMA
+### ATUALIZAR O RELÓGIO DO SISTEMA CASO O NTP ESTEJA ATIVADO
 
-**$bash:** `timedatectl`
-
-### CLONE O REPOSITÓRIO DESTE GUIA
-
-**$bash:** `git clone https://www.github.com/MrKatso/myarch`  
-**$bash:** `cd /myarch`
+**$bash:** `timedatectl` caso o NTP não esteja ativado `timedatectl set-ntp true` ou `truesystemctl enable systemd-timesyncd.service`
 
 ### PARTICIONAMENTO DOS DISCOS
 
@@ -41,19 +36,19 @@ _• Dentro do arquivo locale.gen descomente essa linha e gere-os com (locale-ge
 
 **$bash:** `cfdisk`
 
-_• ESTRUTURA DE PARTIÇÕES:_
+_• ESTRUTURA DE PARTIÇÕES BTRFS:_
 
-| _VOLUME_  | _RÓTULO_  | _TIPO_           | _SISTEMA DE ARQUIVOS_ | _TAMANHO_                                                        |
-| --------- | --------- | ---------------- | --------------------- | ---------------------------------------------------------------- |
-|           |           |                  |                       |                                                                  |
-| /dev/sdXX | /boot/efi | EFI System       | fat-32                | 1GBs no mínimo, de acordo com a quantidade de Kernels instalados |
-|           |           |                  |                       |                                                                  |
-| /dev/sdXX | /         | Linux Filesystem | ext4                  | 30GBs no mínimo                                                  |
-|           |           |                  |                       |                                                                  |
-| /dev/sdXX | /home     | Linux Filesystem | ext4                  | 60GBs no mínimo                                                  |
-|           |           |                  |                       |                                                                  |
-| /dev/sdXX | swap      | Linux Swap       | none                  | 2GBs no mínimo, de acordo com a quantidade de ram instalada      |
-|           |           |                  |                       |                                                                  |
+| _NÚMERO_  | _RÓTULO_  | _TIPO_           | _SUBVOL_ | _SISTEMA DE ARQUIVOS_ | _TAMANHO_                                                        |
+| --------- | --------- | ---------------- | -------- | --------------------- | ---------------------------------------------------------------- |
+|           |           |                  |          |                       |                                                                  |
+| /dev/sdXX | /efi      | EFI System       | não      | fat-32                | 1GBs no mínimo, de acordo com a quantidade de Kernels instalados |
+|           |           |                  |          |                       |                                                                  |
+| /dev/sdXX | @/        | Linux Filesystem | sim      | btrfs                 | 30GBs no mínimo                                                  |
+|           |           |                  |          |                       |                                                                  |
+| /dev/sdXX | @/home    | Linux Filesystem | sim      | btrfs                 | 60GBs no mínimo                                                  |
+|           |           |                  |          |                       |                                                                  |
+| /dev/sdXX | swap      | Linux Swap       | não      | none                  | 2GBs no mínimo, de acordo com a quantidade de ram instalada      |
+|           |           |                  |          |                       |                                                                  |
 
 ### FORMATAR AS PARTIÇÕES
 
@@ -63,21 +58,34 @@ _• ESTRUTURA DE PARTIÇÕES:_
 
 > 📌 Formatar as unidades
 
-**$bash:** `mkfs.vfat -F32 /dev/sdXX`  
-**$bash:** `mkfs.ext4 /dev/sdXX`  
-**$bash:** `mkfs.ext4 /dev/sdXX`  
-**$bash:** `mkswap /dev/sdXX`
+**$bash:** `mkfs.vfat -F32 /dev/X`  
+**$bash:** `mkfs.btrfs /dev/X`  
+**$bash:** `mkswap /dev/X`
+
+**$bash:** `mount -t btrfs /dev/X /mnt`  
+**$bash:** `swapon /dev/X`
+
+> 📌 No local de "X" colocar a unidade alvo " / Linux Filesystem"
 
 ### MONTAR OS SISTEMAS DE ARQUIVOS
 
-> 📌 Formatar as unidades
+**$bash:** `btrfs subvolume create /mnt/@`  
+**$bash:** `btrfs subvolume create /mnt/@home`
 
-**$bash:** `mount -t ext4 /dev/sdXX /mnt`  
-**$bash:** `mkdir -p /mnt/boot/efi`  
-**$bash:** `mount -t vfat /dev/sdXX /mnt/boot/efi`  
+> 📌 Desmonte o root File System
+
+**$bash:** `umount /mnt`
+
+### COMPRIMINDO AS UNIDADES
+
+**$bash:** `mount -o compress=zstd,subvol=@ /dev/X /mnt`  
 **$bash:** `mkdir -p /mnt/home`  
-**$bash:** `mount -t ext4 /dev/sdXX /mnt/home`  
-**$bash:** `swapon /dev/sdXX`
+**$bash:** `mount -o compress=zstd,subvol=@home /dev/X /mnt/home`  
+
+> 📌 Partição efi
+
+**$bash:** `mkdir -p /mnt/efi`  
+**$bash:** `mount /dev/X /mnt/efi`
 
 # INSTALAÇÃO DO SISTEMA
 
@@ -101,7 +109,7 @@ _• ESTRUTURA DE PARTIÇÕES:_
 
 ### INSTALAR OS PACOTES ESSENCIAIS
 
-**$bash:** `pacstrap -K /mnt base base-devel linux linux-firmware linux-headers bash-completion`
+**$bash:** `pacstrap -K /mnt base base-devel linux linux-firmware git linux-headers bash-completion btrfs-progs grub efibootmgr grub-btrfs inotify-tools timeshift amd-ucode vim networkmanager pipewire pipewire-alsa pipewire-pulse pipewire-jack wireplumber reflector zsh zsh-completions zsh-autosuggestions openssh man sudo`
 
 # CONFIGURAR O SISTEMA
 
@@ -156,8 +164,8 @@ pt_BR.UTF-8 UTF-8
 _• Dentro do arquivo vconsole.conf:_
 
 ```conf
-KEYMAP=br-abnt2
-FONT=ter-v16n
+KEYMAP=us-acentos
+FONT=ter-v116n
 FONT_MAP=
 ```
 
@@ -187,9 +195,9 @@ _• Dentro do arquivo hosts:_
 
 ### CRIANDO O USUÁRIO USUAL
 
-> 📌 Cria o usuário katso no grupo wheel (acesso ao sudo) e define a senha padrão do user
+> 📌 Cria o user no grupo wheel (acesso ao sudo) e define a senha padrão do user com o zsh como shell principal
 
-**$bash:** `useradd -m -g users -G wheel joao`  
+**$bash:** `useradd -m -g users -G wheel -s /bin/zsh joao`  
 **$bash:** `passwd joao`
 
 > 📌 Altere o arquivo sudoers
@@ -251,8 +259,8 @@ ParallelDownloads=10
 
 > 📌 Instalando o grub como gerenciador de boot
 
-**$bash:** `pacman -S grub efibootmgr os-prober`  
-**$bash:** `grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=arch-grub --root-directory=/ /dev/sdXX --recheck`  
+**$bash:** `pacman -S os-prober`  
+**$bash:** `grub-install --target=x86_64-efi --efi-directory=/efi --bootloader-id=GRUB --recheck`  
 **$bash:** `grub-mkconfig -o /boot/grub/grub.cfg`
 
 > 📌 Modifique o arquivo /etc/default/grub para que o os-prober identifique outros sistemas na inicialização
@@ -267,7 +275,8 @@ GRUB_DISABLE_OS_PROBER=false
 
 > 📌 Gere o arquivo grub novamente para que as alterações tenham efeito
 
-**$bash:** `grub-mkconfig -o /boot/grub/grub.cfg`
+**$bash:** `grub-mkconfig -o /boot/grub/grub.cfg`  
+**$bash:** `systemctl enable NetworkManager`
 
 # FINALIZANDO A CONFIGURAÇÃO DO SISTEMA
 
@@ -295,4 +304,8 @@ GRUB_DISABLE_OS_PROBER=false
 
 > 📌 Desligue a máquina e remova a unidade de instalação live
 
-**$bash:** `shutdown -h now`
+**$bash:** `reboot -h now`
+
+> 📌 Após reiniciar
+
+**$bash:** `timedatectl set-ntp true`
