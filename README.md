@@ -1,239 +1,499 @@
-# (PRÉ-INSTALAÇÃO) ANTES DE PROSSEGUIRMOS COM A INSTALAÇÃO
+# GUIA COMPLETO INSTALAÇÃO ARCH COM BTRFS E SNAPPER
 
-### DEFINIR O LAYOUT DO TECLADO E FONTE DO CONSOLE
+# TÓPICOS DA INSTALAÇÃO
 
-**$bash:** `loadkeys us-acentos`  
-**$bash:** `setfont ter-v128n` ou `setfont ter-v116n`
+- [INTRODUÇÃO](#INTRODUÇÃO)
+- [ANTES DA INSTALAÇÃO](#ANTES-DA-INSTALAÇÃO)
+-  [INSTALAÇÃO PRINCIPAL](#INSTALAÇÃO-PRINCIPAL)
+	- [Particionamento dos discos](#Particionamento-dos-discos)
+	- [Formatação dos discos](#Formatação-dos-discos)
+	- [Monte as partições](#Monte-as-partições)
+	- [Selecionando os espelhos](#Selecionando-os-espelhos)
+	- [Instalar o sistema base](#Instalar-o-sistema-base)
+	- [Gerar o FSTAB](#Gerar-o-FSTAB)
+	- [CHROOT no sistema](#CHROOT-no-sistema)
+	- [Configurando o sistema](#Configurando-o-sistema)
+		- [Língua do sistema](#Língua-do-sistema)
+		- [Teclado-do-sistema](#Teclado-do-sistema)
+		- [Local e hora](#Local-e-hora)
+		- [Nome da máquina na rede](#Nome-da-máquina-na-rede)
+		- [Módulos do kernel](#Módulos-do-kernel)
+		- [Crie um ambiente ramdisk inicial](#Crie-um-ambiente-ramdisk-inicial)
+		- [Usuários](#Usuários)
+		- [Configurando o pacman](#Configurando-o-pacman)
+		- [Instalando o grub](#Intalando-o-grub)
+		- [Finalizando](#Finalizando)
+	- [Final](#Final)
 
-### DEFINIR O IDIOMA DO AMBIENTE LIVE
+# INTRODUÇÃO
 
-**$bash:** `vim /etc/locale.gen`
+Processo de instalação do Projeto "MrArch", sistema de trabalho principal do ano de 2025. A seguir siga os passos com cautela e atenção para não ter de repetir todo o processo. A instalação será feita em modo UEFI e com o sistema de arquivos BTRFS com snapshots snapper.
 
-_• Dentro do arquivo locale.gen descomente essa linha e gere-os com (locale-gen):_
+# ANTES DA INSTALAÇÃO
 
-```gen
+Primeiro configure o layout do teclado e o idioma do ambiente LiveUSB.
+
+```Zsh
+# Para listar os teclados disponíveis
+localectl list-keymaps
+
+# Novo padrão us com acentos (Eua)
+localectl set-x11-keymap us acentos
+
+# Ou
+loadkeys us-acentos
+
+# Novo padrão br-abnt2 (Brasil)
+localectl set-x11-keymap br abnt2
+
+# Ou
+loadkeys br-abnt2
+```
+
+<br>
+
+Para mudar a fonte do ambiente LiveUSB.
+
+```Zsh
+# Caso a fonte terminus não estiver instalada (Note que deve estar conectado à internet)
+pacman -Sy
+pacman -S terminus-font
+
+# Para setar uma fonte terminus de melhor visualização
+setfont ter-v22n
+```
+
+<br>
+
+**OPCIONAL:** Por padrão, a língua padrão do ambiente LiveUSB é o Inglês. Se quiser modificar, edite o arquivo "locale.gen" e descomente a língua preferível $(OUTROLOCALE).
+
+```Zsh
+# Para editar o locale.gen
+vim /etc/locale.gen
+
+# Depois execute estes comandos
+locale-gen
+export LANG=pt_BR.UTF-8 ou $(OUTROLOCALE)
+```
+
+<br>
+
+Cheque se está no modo UEFI.
+
+```Zsh
+# Se este comando retornar 64 ou 32, estás em UEFI
+cat /sys/firmware/efi/fw_platform_size
+```
+
+<br>
+
+Verifique a conexão com a internet.
+
+```Zsh
+# Para verificar se tem internet
+ping -c 5 archlinux.org
+
+# Caso dê erro rode estes comandos (ETHERNET) que no caso deve conectar-se automaticamente
+dhcpcd
+
+# WIFI
+iwctl
+
+# Listar os dispositivos disponíveis
+device list
+
+# Para scanear as redes
+station device scan
+
+# Listar as redes disponíveis
+station device get-networks
+
+# Finalmente conecte-se ao SSID
+station device connect SSID
+
+# Sair do iwd
+exit
+```
+
+<br>
+
+Cheque o relógio do ambiente LiveUSB.
+
+```Zsh
+# Cheque se o ntp está ativado e se a hora está correta
+timedatectl
+
+# Se o ntp estiver desabilitado
+timedatectl set-ntp true
+
+# Ou isso
+systemctl enable systemd-timesyncd.service
+```
+
+<br>
+
+# INTALAÇÃO PRINCIPAL
+
+## Particionamento dos discos
+
+Para listar os discos disponíveis
+
+```Zsh
+# Lista os discos do X (Unidade, ex: sda1, nvme) desejados(as)
+lsblk -f /dev/X
+```
+
+<br>
+
+Configurando as partições com o CGDISK
+
+```Zsh
+# Listar as partições, "X" é a partição alvo, ex: sda1, sda2
+cgdisk /dev/X
+# 
+```
+
+<br>
+
+O esquema de partição deve ser dessa forma
+
+| _Número_ | _Tipo_ | _Sistema de Arquivos_ | _Tamanho_ |
+| --- | --- | --- | --- |
+| 1 | Swap | SWAP | 2GBs no mínimo, de acordo com a quantidade de ram instalada |
+| --- | --- | --- |--- |
+| 2 | EFI System | FAT-32 | 1GBs no mínimo, de acordo com a quantidade de Kernels instalados |
+| --- | --- | --- | --- |
+| 3 | Linux Filesystem | BTRFS | Todo o restante do armazenamento |
+
+<br>
+
+## Formatação dos discos
+
+Uma vez que as partições forem criadas, cada uma deve ser formatada com um sistema de arquivo adequado, exceto para partições SWAP.
+
+```Zsh
+# Para visualizar o particionamento dos discos
+lsblk -l /dev/X
+
+# SWAP (Note que em "X" deve se colocar a partição do SWAP)
+mkswap -L SWAP /dev/X
+
+# EFI System (Note que em "X" deve se colocar a partição do EFI System)
+mkfs.vfat -F32 -L Linux EFI System /dev/X
+
+# Linux Filesystem (Note que em "X" deve se colocar a partição do Linux Filesystem)
+mkfs.btrfs -L Linux Filesystems /dev/X
+```
+
+<br>
+
+## Monte as partições
+
+Agora monte todas as partições criadas anteriormente
+
+```Zsh
+# Monte a partição raiz na pasta /mnt (Note que em "X" deve se colocar a partição do Linux Filesystem)
+mount /dev/X /mnt
+```
+
+<br>
+
+Agora crie os subvolumes BTRFS nesse esquema:
+
+@ -> O subvolume raiz do sistema (contendo o sistema operacional e todos os arquivos do sistema).  
+@home -> Este é o diretório inicial. Isso consiste na maioria dos seus dados, incluindo área de trabalho e downloads.  
+@var - útil para gerenciar logs e caches.  
+@opt - Para softwares adicionais ou aplicativos que podem ter configurações próprias.  
+@snapshots - Diretório para armazenar instantâneos para o pacote snapper (Este será adicionado após a instalação).
+
+```Zsh
+# Partições essenciais
+btrfs su cr /mnt/@
+btrfs su cr /mnt/@home
+btrfs su cr /mnt/@var
+btrfs su cr /mnt/@opt
+
+# Agora desmonte o /mnt
+umount /mnt
+```
+
+<br>
+
+**OPCIONAL:** Caso queira comprimir os subvolumes siga estes passos, senão pode pular esta parte. Caso seja um ssd, não esqueça de especificar depois do "relatime".
+
+```Zsh
+# Raiz (Note que em "X" deve se colocar a partição do Linux Filesystem)
+mount -o rw,relatime,subvol=@ /dev/sdaX /mnt
+mkdir -p /mnt/{boot/efi,home,var,opt}
+btrfs property set /mnt/@ compression zstd
+
+# Home
+mount -o rw,relatime,subvol=@home /dev/X /mnt/home
+
+# Var
+mount -o rw,relatime,subvol=@var /dev/X /mnt/var
+
+# Opt
+mount -o rw,relatime,subvol=@opt /dev/sda2 /mnt/opt
+
+# Agora habilite a compressão dos volumes
+btrfs property set /mnt/@home compression zstd
+btrfs property set /mnt/@var compression zstd
+btrfs property set /mnt/@opt compression zstd
+```
+
+<br>
+
+Agora vamos montar as partições. Caso seja um ssd, não esqueça de especificar depois do "relatime".
+
+```Zsh
+# Raiz (Note que em "X" deve se colocar a partição do Linux Filesystem)
+mount -o rw,relatime,subvol=@ /dev/sdaX /mnt
+mkdir -p /mnt/{boot/efi,home,var,opt}
+
+# Home
+mount -o rw,relatime,subvol=@home /dev/X /mnt/home
+
+# Var
+mount -o rw,relatime,subvol=@var /dev/X /mnt/var
+
+# Opt
+mount -o rw,relatime,subvol=@opt /dev/sda2 /mnt/opt
+```
+
+<br>
+
+Agora as partições que são a Linux EFI System e o SWAP.
+
+```Zsh
+# A partição Linux EFI System (Note que em "X" deve se colocar a partição do Linux EFI System)
+mount /dev/X /mnt/boot/efi
+
+# A partição SWAP (Note que em "X" deve se colocar a partição do SWAP)
+swapon /dev/X
+```
+
+## Selecionando os espelhos
+
+Primeiro tens de ativar a função de downloads paralelos do pacman. Para isso descomente no arquivo /etc/pacman.conf o "ParallelDownloads=5", se quiser pode aumentar de 5 para 10.
+
+```Zsh
+# Abra o arquivo
+vim /etc/pacman.conf
+
+# Descomente e altere de 5 para 10
+#ParallelDownloads=5
+```
+
+<br>
+
+O ambiente LiveUSB do arch já vem com o reflector instalado por padrão, para usa-lo neste caso, siga estes passos.
+
+-c -> Para selecionar o país  
+-f -> Busca um número de espelhos mais rápidos  
+–-save -> Onde salvar o arquivo mirrorlist
+
+```Zsh
+# Usando o reflector para selecionar os 5 espelhos mais rápidos no país Brasil
+reflector -c brazil -f 5 --save /etc/pacman.d/mirrorlist
+
+# Caso queira visualizar o mirrorlist
+cat /etc/pacman.d/mirrorlist
+```
+
+<br>
+
+## Instalar o sistema base
+
+Um sistema mínimo exige o pacote do grupo "base", também a instalação do grupo de pacote "base-devel" neste momento é altamente recomendado.
+
+```Zsh
+# Usando o pacstrap para instalar o sistema base e algumas ferramentas de antemão
+pacstrap -K /mnt base base-devel linux linux-firmware linux-headers pacman-contrib bash-completion btrfs-progs amd-ucode networkmanager git wget curl man man-db vim nano sudo
+```
+
+<br>
+
+## Gerar o FSTAB
+
+Gere o fstab com o script genfstab (Se preferir adicione a opção -U (UUIDs) ou -L (Labels), respectivamente).
+
+```Zsh
+# Gerar o fstab, que marca as partições montadas no sistema
+genfstab -U /mnt >> /mnt/etc/fstab
+
+# Verifique com o cat
+cat /mnt/etc/fstab
+
+# Opcional: Apenas a partição root(/) precisa de 1 no último campo. Todo o resto deve ser 2 ou 0. Além disso, data=ordered devem ser removidos.
+vim /mnt/etc/fstab
+```
+
+<br>
+
+## CHROOT no sistema
+
+```Zsh
+# Para entrar no ambiente do sistema
+arch-chroot /mnt
+```
+
+<br>
+
+## Configurando o sistema
+
+Primeiramente realize novamente [estes passos](##Selecionando-os-espelhos), caso o mirrorlist não tenha sido herdado do ambiente LiveUSB, depois rode pacman -Sy para atualizar os espelhos.
+
+### Língua do sistema
+
+Primeiro configure a língua do sistema.
+
+```Zsh
+# Edite o arquivo /etc/locale.gen e decomente essas linhas
 #pt_BR.UTF-8 UTF-8
+#pt_BR ISO-8859-1
+
+# Agora o arquivo /etc/locale.conf
+echo LANG=pt_BR.UTF-8 > /etc/locale.conf
+
+# Por fim
+locale-gen
+export LANG=pt_BR.UTF-8
 ```
 
-**$bash:** `locale-gen`  
-**$bash:** `export LANG=pt_BR.UTF-8`
+<br>
 
-### CONECTAR À INTERNET
+### Teclado do sistema
 
-**$bash:** `iwctl --passphrase ($passphrase) station ($device) connect ($SSID)`
+Depois configure o teclado do sistema.
 
-> 📌 Para verificar se está conectado à rede
+```Zsh
+# Primeiro instale o pacote de fontes terminus
+pacman -S terminus-font --needed --noconfirm
 
-**$bash:** `ping -c 4 archlinux.org`
-
-### ATUALIZAR O RELÓGIO DO SISTEMA CASO O NTP ESTEJA ATIVADO
-
-**$bash:** `timedatectl` caso o NTP não esteja ativado `timedatectl set-ntp true` ou `truesystemctl enable systemd-timesyncd.service`
-
-### PARTICIONAMENTO DOS DISCOS
-
-> 📌 Particionamento manual do disco usando o cfdisk
-
-**$bash:** `cfdisk`
-
-_• ESTRUTURA DE PARTIÇÕES BTRFS:_
-
-| _NÚMERO_  | _RÓTULO_  | _TIPO_           | _SUBVOL_ | _SISTEMA DE ARQUIVOS_ | _TAMANHO_                                                        |
-| --------- | --------- | ---------------- | -------- | --------------------- | ---------------------------------------------------------------- |
-|           |           |                  |          |                       |                                                                  |
-| /dev/sdXX | /efi      | EFI System       | não      | fat-32                | 1GBs no mínimo, de acordo com a quantidade de Kernels instalados |
-|           |           |                  |          |                       |                                                                  |
-| /dev/sdXX | @/        | Linux Filesystem | sim      | btrfs                 | 30GBs no mínimo                                                  |
-|           |           |                  |          |                       |                                                                  |
-| /dev/sdXX | @/home    | Linux Filesystem | sim      | btrfs                 | 60GBs no mínimo                                                  |
-|           |           |                  |          |                       |                                                                  |
-| /dev/sdXX | swap      | Linux Swap       | não      | none                  | 2GBs no mínimo, de acordo com a quantidade de ram instalada      |
-|           |           |                  |          |                       |                                                                  |
-
-### FORMATAR AS PARTIÇÕES
-
-> 📌 Visuálizar as unidades e listar seus respectivos volumes
-
-**$bash:** `lsblk`
-
-> 📌 Formatar as unidades
-
-**$bash:** `mkfs.vfat -F32 /dev/X`  
-**$bash:** `mkfs.btrfs /dev/X`  
-**$bash:** `mkswap /dev/X`
-
-**$bash:** `mount -t btrfs /dev/X /mnt`  
-**$bash:** `swapon /dev/X`
-
-> 📌 No local de "X" colocar a unidade alvo " / Linux Filesystem"
-
-### MONTAR OS SISTEMAS DE ARQUIVOS
-
-**$bash:** `btrfs subvolume create /mnt/@`  
-**$bash:** `btrfs subvolume create /mnt/@home`
-
-> 📌 Desmonte o root File System
-
-**$bash:** `umount /mnt`
-
-### COMPRIMINDO AS UNIDADES
-
-**$bash:** `mount -o compress=zstd,subvol=@ /dev/X /mnt`  
-**$bash:** `mkdir -p /mnt/home`  
-**$bash:** `mount -o compress=zstd,subvol=@home /dev/X /mnt/home`  
-
-> 📌 Partição efi
-
-**$bash:** `mkdir -p /mnt/efi`  
-**$bash:** `mount /dev/X /mnt/efi`
-
-# INSTALAÇÃO DO SISTEMA
-
-### SELECIONAR OS ESPELHOS
-
-> 📌 Faça um _backup_ do /etc/pacman.d/mirrorlist existente
-
-**$bash:** `cp /etc/pacman.d/mirrorlist /etc/pacman.d/mirrorlist.backup`
-
-> 📌 Copie o arquivo mirrorlist dentro da pasta "myarch" clonada do git para o diretório /etc/pacman.d/
-
-**$bash:** `cp mirrorlist /etc/pacman.d/mirrorlist`
-
-> 📌 Classifique os espelhos, aqui com o operando (-n 10) para emitir apenas os 10 espelhos mais rápidos
-
-**$bash:** `rankmirrors -n 10 /etc/pacman.d/mirrorlist`
-
-> 📌 Force a atualização dos mirrors do pacman
-
-**$bash:** `pacman -Syyu`
-
-### INSTALAR OS PACOTES ESSENCIAIS
-
-**$bash:** `pacstrap -K /mnt base base-devel linux linux-firmware git linux-headers bash-completion btrfs-progs grub efibootmgr grub-btrfs inotify-tools timeshift amd-ucode vim networkmanager pipewire pipewire-alsa pipewire-pulse pipewire-jack wireplumber reflector zsh zsh-completions zsh-autosuggestions openssh man sudo`
-
-# CONFIGURAR O SISTEMA
-
-### FSTAB
-
-> 📌 Gere o arquivo fstab
-
-**$bash:** `genfstab -U /mnt >> /mnt/etc/fstab`
-
-### CHROOT
-
-> 📌 Mude a raiz para o novo sistema
-
-**$bash:** `arch-chroot /mnt`
-
-### HORÁRIO
-
-> 📌 Defina o fuso horário
-
-**$bash:** `ln -sf /usr/share/zoneinfo/America/Sao_Paulo /etc/localtime`
-
-> 📌 Execute "hwclock" para gerar /etc/adjtime
-
-**$bash:** `hwclock --systohc --utc`
-
-### LOCALIZAÇÃO
-
-> 📌 Edite /etc/locale.gen e descomente pt_BR.UTF-8 UTF-8
-
-**$bash:** `vim /etc/locale.gen`
-
-_• Dentro do arquivo locale.gen descomente essa linha:_
-
-```gen
-pt_BR.UTF-8 UTF-8
-```
-
-> 📌 Gere os locales executando
-
-**$bash:** `locale-gen`
-
-> 📌 Crie o arquivo locale.conf e defina a variável LANG adequadamente
-
-**$bash:** `echo LANG=pt_BR.UTF-8 > /etc/locale.conf`  
-**$bash:** `export LANG=pt_BR.UTF-8`
-
-> 📌 Defina o esquema do teclado do console como persistentes em vconsole.conf
-
-**$bash:** `pacman -S terminus-font --needed --noconfirm`  
-**$bash:** `vim /etc/vconsole.conf`
-
-_• Dentro do arquivo vconsole.conf:_
-
-```conf
-KEYMAP=us-acentos
-FONT=ter-v116n
+# Edite o arquivo /etc/vconsole.conf e coloque isso conforme o tipo de teclado (BR=br-abnt2, USACT=us-acentos)
+KEYMAP=br-abnt2
+FONT=ter-v22n
 FONT_MAP=
 ```
 
-### CONFIGURAÇÃO DE REDE
+<br>
 
-> 📌 Crie o arquivo hostname para setar o nome da máquina
+### Local e hora
 
-**$bash:** `echo ($HOSTNAME) > /etc/hostname`
+Agora configure o local e a hora.
 
-> 📌 Edite o arquivo /etc/hosts para setar o localhost
+```Zsh
+# Para listar as timezones
+timedatectl list-timezones
 
-**$bash:** `vim /etc/hosts`
+# Para America/Sao_Paulo
+timedatectl set-timezone America/Sao_Paulo
 
-_• Dentro do arquivo hosts:_
-
-```hosts
-127.0.0.1     localhost.localdomain     localhost
-::1           localhost.localdomain     localhost
-127.0.0.1     ($HOSTNAME).localdomain   ($HOSTNAME)
+# Para ativar o formato UTC
+timedatectl set-timezone UTC
 ```
 
-### SENHA ROOT
+<br>
 
-> 📌 Defina a senha do root (conhecido como "superusuário")
+### Nome da máquina na rede
 
-**$bash:** `passwd`
+Agora configure o nome da máquina e hosts
 
-### CRIANDO O USUÁRIO USUAL
+```Zsh
+# Nome da máquina (Onde $(HOSTNAME) é o nome da máquina desejado que irá aparecer na rede)
+echo ($HOSTNAME) > /etc/hostname
 
-> 📌 Cria o user no grupo wheel (acesso ao sudo) e define a senha padrão do user com o zsh como shell principal
+# Edite o arquivo /etc/hosts para configurar o localhost e coloque isso (Onde $(HOSTNAME) é o nome da máquina)
+127.0.0.1     localhost.localdomain     localhost
+::1           localhost.localdomain     localhost
+127.0.1.1     ($HOSTNAME).localdomain   ($HOSTNAME)
 
-**$bash:** `useradd -m -g users -G wheel -s /bin/zsh joao`  
-**$bash:** `passwd joao`
+# Agora verifique novamento o DNS (DNS do google)
+nameserver 8.8.8.8
+nameserver 8.8.4.4
+search google.com ou example.com
+```
 
-> 📌 Altere o arquivo sudoers
+<br>
 
-**$bash:** `vim /etc/sudoers`
+### Módulos do kernel
 
-_• Dentro do arquivo sudoers:_
+Para um módulo relacionado ao hardware siga estes passos.
 
-```sudoers
+```Zsh
+# Crie o arquivo com o nome do módulo, nesse caso o virtio
+touch /etc/modules-load.d/virtio-net.conf
+
+# Abra o arquivo com o vim e insira isso
+# Load virtio-net.ko at boot
+virtio-net
+
+# Dont run the pcspkr module at boot
+blacklist pcspkr
+```
+
+<br>
+
+### Crie um ambiente ramdisk inicial
+
+Isso é necessário para atualizar e aplicar as alterações feitas nos módulos do kernel.
+
+```Zsh
+# ramdisk
+mkinitcpio -p linux
+```
+
+<br>
+
+### Usuários
+
+Escolha uma senha forte para o usuário root.
+
+```Zsh
+# Senha do usuário root
+passwd
+
+# Criando o usuário principal e definindo sua senha
+useradd -m -g users -G wheel -s /bin/zsh mr
+passwd mr
+
+# Agora altere o arquivo /etc/sudoers para permitir que o usuário criado possa usar o sudo, com o editor vim, e descomente e altere essas linhas
 $wheel ALL(ALL:ALL) NOPASSWD: ALL, !/usr/bin/passwd, !/usr/bin/passwd root
 $wheel ALL(ALL:ALL) PASSWD: /usr/sbin/visudo
 
-## NO FINAL DO ARQUIVO
-
+# No final do arquivo coloque isso, para padronizar o editor ao usar o visudo
 Defaults editor=/usr/bin/vim
 ```
 
-### PACMAN.CONF
+<br>
 
-> 📌 Modifique o arquivo /etc/pacman.conf
+### Configurando o pacman
 
-**$bash:** `vim /etc/pacman.conf`
+Agora precisamos fazer algumas pequenas alterações no arquivo /etc/pacman.conf, siga os passos.
 
-_• Dentro do arquivo pacman.conf faça o seguinte:_
+```Zsh
+# Entre no arquivo pacman.conf
+vim /etc/pacman.conf
 
-```conf
-## ADICIONE
-
+# Realize essas modificações
+## Adicione
 [options]
 ILoveCandy
 
-## DESCOMENTE
+- Repositórios -
+[community]
+SigLevel = PackageRequired
+Include = /etc/pacman.d/mirrorlist
+[multilib]
+#SigLevel = PackageRequired
+Include = /etc/pacman.d/mirrorlist
 
+## Descomente
 [options]
 Color
 
+- Repositórios -
 [core]
 SigLevel = PackageRequired
 Include = /etc/pacman.d/mirrorlist
@@ -241,71 +501,81 @@ Include = /etc/pacman.d/mirrorlist
 [extra]
 SigLevel = PackageRequired
 Include = /etc/pacman.d/mirrorlist
-
-[community]
-SigLevel = PackageRequired
-Include = /etc/pacman.d/mirrorlist
-
-# Para poder executar aplicações de 32 bits
-[multilib]
-#SigLevel = PackageRequired
-Include = /etc/pacman.d/mirrorlist
-
-## ALTERE
-ParallelDownloads=10
 ```
 
-### GERENCIADOR DE BOOT
+<br>
 
-> 📌 Instalando o grub como gerenciador de boot
+### Instalando o grub
 
-**$bash:** `pacman -S os-prober`  
-**$bash:** `grub-install --target=x86_64-efi --efi-directory=/efi --bootloader-id=GRUB --recheck`  
-**$bash:** `grub-mkconfig -o /boot/grub/grub.cfg`
+Para iniciar o sistema, precisamos de um carregador boot do sistema.
 
-> 📌 Modifique o arquivo /etc/default/grub para que o os-prober identifique outros sistemas na inicialização
+```Zsh
+# Primeiro instale o grub e o efibootmgr para sistemas em EFI
+pacman -S grub efibootmgr --needed --noconfirm
 
-**$bash:** `vim /etc/default/grub`
+# Caso esteja em dual boot, intale isso também
+pacman -S os-prober --needed --noconfirm
 
-_• Dentro do arquivo grub descomente essa linha:_
+# Agora instale o grub no sistema
+grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=GRUB --recheck
 
-```grub
-GRUB_DISABLE_OS_PROBER=false
+# Depois verifique se o arquivo foi instalado na pasta grub ou arch, o que deverá aparecer algum arquivo chamado grubx64.efi
+ls /boot
+
+# Se tudo estiver em seu devido lugar crie o arquivo de configuração do grub
+grub-mkconfig -o /boot/grub/grub.cfg
+
+# Caso esteja em dual boot, siga estes passos
+## Modifique o arquivo /etc/default/grub usando o vim para que o os-prober identifique outros sistemas na inicialização
+## Dentro do arquivo grub descomente essas linhas
+# GRUB_DISABLE_OS_PROBER=false
+
+# Gere o arquivo grub novamente para que as alterações tenham efeito
+grub-mkconfig -o /boot/grub/grub.cfg
 ```
 
-> 📌 Gere o arquivo grub novamente para que as alterações tenham efeito
+<br>
 
-**$bash:** `grub-mkconfig -o /boot/grub/grub.cfg`  
-**$bash:** `systemctl enable NetworkManager`
+### Finalizando
 
-# FINALIZANDO A CONFIGURAÇÃO DO SISTEMA
+Instale mais alguns pacotes que achar necessário
 
-### SCRIPT ARCHDI
+```Zsh
+# Pacotes de compactação de arquivos
+pacman -S unzip p7zip unace unrar --needed --noconfirm
 
-> 📌 Baixe o script archdi dos repositórios oficiais e instale os pacotes necessários para o funcionamento completo do sistema, depois saia do script
+# Bluetooth
+pacman -S bluez bluez-utils --needed --noconfirm
+```
 
-**$bash:** `curl -LO archdi.sf.net/archdi > archdi`  
-**$bash:** `sh archdi`
+<br>
 
-### FINAL
+Para finalizar ative alguns serviços para melhor funcionamento do sistema
 
-> 📌 Após usar o script remova-o
+```Zsh
+# Ative o serviço de rede
+systemctl enable NetworkManager
 
-**$bash:** `rm -rf archdi`
+# Ative o bluetooth
+systemctl enable Bluetooth
+```
 
-> 📌 Saia do ambiente chroot
+<br>
 
-**$bash:** `exit`
+## FINAL
 
-> 📌 Desmonte as unidades recursivamente
+Após terminar a configuração do sistema.
 
-**$bash:** `umount -R /mnt`  
-**$bash:** `swapoff /dev/sdXX`
+```Zsh
+# Saia do ambiente chroot
+exit
 
-> 📌 Desligue a máquina e remova a unidade de instalação live
+# Desmonte as partições
+umount -R /mnt
+swapoff /dev/X
 
-**$bash:** `reboot -h now`
+# Reinicie a máquina
+reboot -h now
+```
 
-> 📌 Após reiniciar
-
-**$bash:** `timedatectl set-ntp true`
+<br>
