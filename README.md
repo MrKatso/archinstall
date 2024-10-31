@@ -4,7 +4,7 @@
 
 - [INTRODUÇÃO](#INTRODUÇÃO)
 - [ANTES DA INSTALAÇÃO](#ANTES-DA-INSTALAÇÃO)
--  [INSTALAÇÃO PRINCIPAL](#INSTALAÇÃO-PRINCIPAL)
+-  [INSTALANDO O SISTEMA](#INSTALANDO-O-SISTEMA)
 	- [Particionamento dos discos](#Particionamento-dos-discos)
 	- [Formatação dos discos](#Formatação-dos-discos)
 	- [Monte as partições](#Monte-as-partições)
@@ -14,7 +14,7 @@
 	- [CHROOT no sistema](#CHROOT-no-sistema)
 	- [Configurando o sistema](#Configurando-o-sistema)
 		- [Língua do sistema](#Língua-do-sistema)
-		- [Teclado-do-sistema](#Teclado-do-sistema)
+		- [Teclado do sistema](#Teclado-do-sistema)
 		- [Local e hora](#Local-e-hora)
 		- [Nome da máquina na rede](#Nome-da-máquina-na-rede)
 		- [Módulos do kernel](#Módulos-do-kernel)
@@ -24,6 +24,7 @@
 		- [Instalando o grub](#Intalando-o-grub)
 		- [Finalizando](#Finalizando)
 	- [Final](#Final)
+- [PÓS INSTALAÇÃO](PÓS-INSTALAÇÃO)
 
 # INTRODUÇÃO
 
@@ -52,20 +53,7 @@ loadkeys br-abnt2
 
 <br>
 
-Para mudar a fonte do ambiente LiveUSB.
-
-```Zsh
-# Caso a fonte terminus não estiver instalada (Note que deve estar conectado à internet)
-pacman -Sy
-pacman -S terminus-font
-
-# Para setar uma fonte terminus de melhor visualização
-setfont ter-v22n
-```
-
-<br>
-
-**OPCIONAL:** Por padrão, a língua padrão do ambiente LiveUSB é o Inglês. Se quiser modificar, edite o arquivo "locale.gen" e descomente a língua preferível $(OUTROLOCALE).
+**OPCIONAL:** Por padrão, a língua padrão do ambiente LiveUSB é o Inglês. Se quiser modificar, edite o arquivo "locale.gen" e descomente a língua preferível.
 
 ```Zsh
 # Para editar o locale.gen
@@ -84,6 +72,10 @@ Cheque se está no modo UEFI.
 # Se este comando retornar 64 ou 32, estás em UEFI
 cat /sys/firmware/efi/fw_platform_size
 ```
+
+<br>
+
+Se por acaso o LiveUSB do Arch ISO estiver em modo Legacy, recrie a unidade USB bootável como GPT e UEFI, se não pode prosseguir com a instalação.
 
 <br>
 
@@ -117,6 +109,19 @@ exit
 
 <br>
 
+Para mudar a fonte do ambiente LiveUSB.
+
+```Zsh
+# Caso a fonte terminus não estiver instalada (Note que deve estar conectado à internet)
+pacman -Sy
+pacman -S terminus-font
+
+# Para setar uma fonte terminus de melhor visualização
+setfont ter-v22n
+```
+
+<br>
+
 Cheque o relógio do ambiente LiveUSB.
 
 ```Zsh
@@ -145,17 +150,17 @@ lsblk -f /dev/X
 
 <br>
 
-Configurando as partições com o CGDISK
+Configurando as partições com o CFDISK, lembrando de selecionar o formato GPT
 
 ```Zsh
-# Listar as partições, "X" é a partição alvo, ex: sda1, sda2
-cgdisk /dev/X
+# Listar as partições, "X" é a unidade alvo, ex: sda1, sdb1, nvme1
+cfdisk /dev/X
 # 
 ```
 
 <br>
 
-O esquema de partição deve ser dessa forma
+O esquema de partição para está instalação deve ser dessa forma:
 
 | _Número_ | _Tipo_ | _Sistema de Arquivos_ | _Tamanho_ |
 | --- | --- | --- | --- |
@@ -179,10 +184,10 @@ lsblk -l /dev/X
 mkswap -L SWAP /dev/X
 
 # EFI System (Note que em "X" deve se colocar a partição do EFI System)
-mkfs.vfat -F32 -L Linux EFI System /dev/X
+mkfs.vfat -F32 -n LINUXEFI /dev/X
 
 # Linux Filesystem (Note que em "X" deve se colocar a partição do Linux Filesystem)
-mkfs.btrfs -L Linux Filesystems /dev/X
+mkfs.btrfs -L LINUX /dev/X
 ```
 
 <br>
@@ -198,13 +203,13 @@ mount /dev/X /mnt
 
 <br>
 
-Agora crie os subvolumes BTRFS nesse esquema:
+Agora crie os subvolumes BTRFS nesse esquema, adequado para esta instalação:
 
 @ -> O subvolume raiz do sistema (contendo o sistema operacional e todos os arquivos do sistema).  
 @home -> Este é o diretório inicial. Isso consiste na maioria dos seus dados, incluindo área de trabalho e downloads.  
-@var - útil para gerenciar logs e caches.  
-@opt - Para softwares adicionais ou aplicativos que podem ter configurações próprias.  
-@snapshots - Diretório para armazenar instantâneos para o pacote snapper (Este será adicionado após a instalação).
+@var -> útil para gerenciar logs e caches.  
+@opt -> Para softwares adicionais ou aplicativos que podem ter configurações próprias.  
+@.snapshots -> Diretório para armazenar instantâneos para o pacote snapper (Este será adicionado após a instalação).
 
 ```Zsh
 # Partições essenciais
@@ -225,7 +230,6 @@ umount /mnt
 # Raiz (Note que em "X" deve se colocar a partição do Linux Filesystem)
 mount -o rw,relatime,subvol=@ /dev/sdaX /mnt
 mkdir -p /mnt/{boot/efi,home,var,opt}
-btrfs property set /mnt/@ compression zstd
 
 # Home
 mount -o rw,relatime,subvol=@home /dev/X /mnt/home
@@ -237,6 +241,7 @@ mount -o rw,relatime,subvol=@var /dev/X /mnt/var
 mount -o rw,relatime,subvol=@opt /dev/sda2 /mnt/opt
 
 # Agora habilite a compressão dos volumes
+btrfs property set /mnt/@ compression zstd
 btrfs property set /mnt/@home compression zstd
 btrfs property set /mnt/@var compression zstd
 btrfs property set /mnt/@opt compression zstd
@@ -263,10 +268,10 @@ mount -o rw,relatime,subvol=@opt /dev/sda2 /mnt/opt
 
 <br>
 
-Agora as partições que são a Linux EFI System e o SWAP.
+Agora as partições que são a Linux EFI e o SWAP.
 
 ```Zsh
-# A partição Linux EFI System (Note que em "X" deve se colocar a partição do Linux EFI System)
+# A partição Linux EFI (Note que em "X" deve se colocar a partição do Linux EFI)
 mount /dev/X /mnt/boot/efi
 
 # A partição SWAP (Note que em "X" deve se colocar a partição do SWAP)
@@ -282,7 +287,7 @@ Primeiro tens de ativar a função de downloads paralelos do pacman. Para isso d
 vim /etc/pacman.conf
 
 # Descomente e altere de 5 para 10
-#ParallelDownloads=5
+ParallelDownloads=5
 ```
 
 <br>
@@ -291,7 +296,7 @@ O ambiente LiveUSB do arch já vem com o reflector instalado por padrão, para u
 
 -c -> Para selecionar o país  
 -f -> Busca um número de espelhos mais rápidos  
-–-save -> Onde salvar o arquivo mirrorlist
+--save -> Onde salvar o arquivo mirrorlist
 
 ```Zsh
 # Usando o reflector para selecionar os 5 espelhos mais rápidos no país Brasil
@@ -309,14 +314,14 @@ Um sistema mínimo exige o pacote do grupo "base", também a instalação do gru
 
 ```Zsh
 # Usando o pacstrap para instalar o sistema base e algumas ferramentas de antemão
-pacstrap -K /mnt base base-devel linux linux-firmware linux-headers pacman-contrib bash-completion btrfs-progs amd-ucode networkmanager git wget curl man man-db vim nano sudo
+pacstrap -K /mnt base base-devel linux linux-firmware linux-headers btrfs-progs amd-ucode git wget curl man man-db vim nano sudo
 ```
 
 <br>
 
 ## Gerar o FSTAB
 
-Gere o fstab com o script genfstab (Se preferir adicione a opção -U (UUIDs) ou -L (Labels), respectivamente).
+Gere o fstab com o script genfstab (Adicione a opção -U (UUIDs) ou -L (Labels), respectivamente).
 
 ```Zsh
 # Gerar o fstab, que marca as partições montadas no sistema
@@ -342,7 +347,7 @@ arch-chroot /mnt
 
 ## Configurando o sistema
 
-Primeiramente realize novamente [estes passos](##Selecionando-os-espelhos), caso o mirrorlist não tenha sido herdado do ambiente LiveUSB, depois rode pacman -Sy para atualizar os espelhos.
+Primeiramente realize novamente [estes passos](##Selecionando-os-espelhos) caso o mirrorlist não tenha sido herdado do ambiente LiveUSB, depois rode pacman -Sy para atualizar os espelhos.
 
 ### Língua do sistema
 
@@ -350,8 +355,8 @@ Primeiro configure a língua do sistema.
 
 ```Zsh
 # Edite o arquivo /etc/locale.gen e decomente essas linhas
-#pt_BR.UTF-8 UTF-8
-#pt_BR ISO-8859-1
+pt_BR.UTF-8 UTF-8
+pt_BR ISO-8859-1
 
 # Agora o arquivo /etc/locale.conf
 echo LANG=pt_BR.UTF-8 > /etc/locale.conf
@@ -365,7 +370,7 @@ export LANG=pt_BR.UTF-8
 
 ### Teclado do sistema
 
-Depois configure o teclado do sistema.
+Depois configure o teclado do sistema (TTY).
 
 ```Zsh
 # Primeiro instale o pacote de fontes terminus
@@ -387,11 +392,11 @@ Agora configure o local e a hora.
 # Para listar as timezones
 timedatectl list-timezones
 
-# Para America/Sao_Paulo
-timedatectl set-timezone America/Sao_Paulo
+# Para America/Sao_Paulo, devemos criar um link simbólico
+ln -sf /usr/share/zoneinfo/America/Sao_Paulo /etc/localtime
 
-# Para ativar o formato UTC
-timedatectl set-timezone UTC
+# Para atualizar a hora e ativar o formato UTC
+hwclock --systohc --utc
 ```
 
 <br>
@@ -408,11 +413,6 @@ echo ($HOSTNAME) > /etc/hostname
 127.0.0.1     localhost.localdomain     localhost
 ::1           localhost.localdomain     localhost
 127.0.1.1     ($HOSTNAME).localdomain   ($HOSTNAME)
-
-# Agora verifique novamento o DNS (DNS do google)
-nameserver 8.8.8.8
-nameserver 8.8.4.4
-search google.com ou example.com
 ```
 
 <br>
@@ -425,7 +425,7 @@ Para um módulo relacionado ao hardware siga estes passos.
 # Crie o arquivo com o nome do módulo, nesse caso o virtio
 touch /etc/modules-load.d/virtio-net.conf
 
-# Abra o arquivo com o vim e insira isso
+## Abra o arquivo com o vim e insira isso
 # Load virtio-net.ko at boot
 virtio-net
 
@@ -448,7 +448,7 @@ mkinitcpio -p linux
 
 ### Usuários
 
-Escolha uma senha forte para o usuário root.
+Senha para o root e criação do usuário principal do sistema
 
 ```Zsh
 # Senha do usuário root
@@ -458,7 +458,7 @@ passwd
 useradd -m -g users -G wheel -s /bin/zsh mr
 passwd mr
 
-# Agora altere o arquivo /etc/sudoers para permitir que o usuário criado possa usar o sudo, com o editor vim, e descomente e altere essas linhas
+# Agora altere o arquivo /etc/sudoers para permitir que o usuário criado possa usar o sudo, com o editor vim e descomente e altere essas linhas
 $wheel ALL(ALL:ALL) NOPASSWD: ALL, !/usr/bin/passwd, !/usr/bin/passwd root
 $wheel ALL(ALL:ALL) PASSWD: /usr/sbin/visudo
 
@@ -511,7 +511,7 @@ Para iniciar o sistema, precisamos de um carregador boot do sistema.
 
 ```Zsh
 # Primeiro instale o grub e o efibootmgr para sistemas em EFI
-pacman -S grub efibootmgr --needed --noconfirm
+pacman -S grub efibootmgr ntfs-3g fuse3 --needed --noconfirm
 
 # Caso esteja em dual boot, intale isso também
 pacman -S os-prober --needed --noconfirm
@@ -520,17 +520,14 @@ pacman -S os-prober --needed --noconfirm
 grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=GRUB --recheck
 
 # Depois verifique se o arquivo foi instalado na pasta grub ou arch, o que deverá aparecer algum arquivo chamado grubx64.efi
-ls /boot
-
-# Se tudo estiver em seu devido lugar crie o arquivo de configuração do grub
-grub-mkconfig -o /boot/grub/grub.cfg
+ls /boot/efi/EFI/GRUB/
 
 # Caso esteja em dual boot, siga estes passos
 ## Modifique o arquivo /etc/default/grub usando o vim para que o os-prober identifique outros sistemas na inicialização
 ## Dentro do arquivo grub descomente essas linhas
-# GRUB_DISABLE_OS_PROBER=false
+GRUB_DISABLE_OS_PROBER=false
 
-# Gere o arquivo grub novamente para que as alterações tenham efeito
+# Se tudo estiver em seu devido lugar e nenhum erro reportado crie o arquivo de configuração do grub
 grub-mkconfig -o /boot/grub/grub.cfg
 ```
 
@@ -538,14 +535,35 @@ grub-mkconfig -o /boot/grub/grub.cfg
 
 ### Finalizando
 
-Instale mais alguns pacotes que achar necessário
+Instale mais alguns pacotes necessários para um sistema mais funcional
 
 ```Zsh
-# Pacotes de compactação de arquivos
-pacman -S unzip p7zip unace unrar --needed --noconfirm
+# Pacotes de compactação e descompactação de arquivos
+pacman -S unace p7zip --needed --noconfirm
 
 # Bluetooth
-pacman -S bluez bluez-utils --needed --noconfirm
+pacman -S bluez bluez-libs bluez-utils --needed --noconfirm
+
+# Rede
+pacman -S networkmanager network-manager-applet --needed --noconfirm
+
+# Ferramentas do sistema
+pacman -S xdg-user-dirs htop neofetch --needed --noconfirm
+
+# Fontes do sistema e temas
+pacman -S ttf-dejavu --needed --noconfirm
+
+# Drivers de vídeo (INTEL) que são necessários
+pacman -S mesa lib32-mesa vulkan-intel vulkan-icd-loader ocl-icd intel-media-driver --needed --noconfirm
+
+# Drivers de vídeo (INTEL) que possívelmente não são necessários para essa configuração
+pacman -S lib32-vulkan-intel --needed --noconfirm
+
+# Drivers de vídeo (AMD) que são necessários
+pacman -S mesa lib32-mesa vulkan-radeon vulkan-icd-loader ocl-icd libva-mesa-driver --needed --noconfirm
+
+# Drivers de vídeo (AMD) que possívelmente não são necessários para essa configuração
+pacman -S lib32-vulkan-radeon lib32-amdvlk lib32-libva-mesa-driver --needed --noconfirm
 ```
 
 <br>
@@ -556,8 +574,8 @@ Para finalizar ative alguns serviços para melhor funcionamento do sistema
 # Ative o serviço de rede
 systemctl enable NetworkManager
 
-# Ative o bluetooth
-systemctl enable Bluetooth
+# Ative o bluetooth (opcional)
+systemctl enable bluetooth.service
 ```
 
 <br>
@@ -579,3 +597,5 @@ reboot -h now
 ```
 
 <br>
+
+# PÓS INSTALAÇÃO
