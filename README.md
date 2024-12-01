@@ -554,10 +554,10 @@ pacman -S xdg-user-dirs htop neofetch --needed --noconfirm
 pacman -S ttf-dejavu --needed --noconfirm
 
 # Drivers de vídeo (INTEL) que são necessários
-pacman -S mesa lib32-mesa vulkan-intel vulkan-icd-loader ocl-icd intel-media-driver --needed --noconfirm
+pacman -S mesa lib32-mesa vulkan-intel vulkan-icd-loader lib32-vulkan-intel intel-media-driver intel-gmmlib --needed --noconfirm
 
 # Drivers de vídeo (INTEL) que possívelmente não são necessários para essa configuração
-pacman -S lib32-vulkan-intel --needed --noconfirm
+pacman -S ocl-icd --needed --noconfirm
 
 # Drivers de vídeo (AMD) que são necessários
 pacman -S mesa lib32-mesa vulkan-radeon vulkan-icd-loader ocl-icd libva-mesa-driver --needed --noconfirm
